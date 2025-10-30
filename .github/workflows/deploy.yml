@@ -7,10 +7,13 @@ on:
       - main
 
 env:
-  IMAGE_NAME: ${{ secrets.IMAGE_NAME }}             # e.g. neighbor-app
-  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }} # e.g. neighboracr2025.azurecr.io
-  AKS_RESOURCE_GROUP: ${{ secrets.AKS_RESOURCE_GROUP }} # e.g. neighbor-rg
-  AKS_CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME }}     # e.g. neighbor-aks
+  IMAGE_NAME: ${{ secrets.IMAGE_NAME }}             # e.g., neighbor-app
+  ACR_NAME: ${{ secrets.ACR_NAME }}                 # e.g., neighboracr2025
+  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }} # e.g., neighboracr2025.azurecr.io
+  AKS_RESOURCE_GROUP: ${{ secrets.AKS_RESOURCE_GROUP }} # e.g., neighbor-rg
+  AKS_CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME }}     # e.g., neighbor-aks
+  DEPLOYMENT_NAME: neighbor-app-deployment              # must match metadata.name in your deployment.yaml
+  K8S_NAMESPACE: default                                # namespace of your deployment
 
 jobs:
   build-and-deploy:
@@ -24,21 +27,21 @@ jobs:
       - name: Azure Login
         uses: azure/login@v1
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}  # Service principal JSON
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       # Step 3: Log in to Azure Container Registry
       - name: Log in to ACR
         run: |
-          az acr login --name ${{ secrets.ACR_NAME }}
+          az acr login --name ${{ env.ACR_NAME }}
 
       # Step 4: Build and Push Docker Image
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v4
         with:
-          context: ./                   # Path to your app folder
-          file: ./Dockerfile            # Path to Dockerfile
+          context: ./                   # folder containing your app code
+          file: ./Dockerfile            # path to Dockerfile
           push: true
-          tags: ${{ secrets.ACR_LOGIN_SERVER }}/${{ secrets.IMAGE_NAME }}:latest
+          tags: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest
 
       # Step 5: Get AKS credentials
       - name: Get AKS credentials
@@ -51,5 +54,15 @@ jobs:
       # Step 6: Apply Kubernetes manifests
       - name: Deploy to AKS
         run: |
-          kubectl apply -f k8s/           # Path to your deployment/service YAML files
-          kubectl rollout status deployment/${{ env.IMAGE_NAME }} -n default
+          kubectl apply -f k8s/ -n ${{ env.K8S_NAMESPACE }}
+          
+          # Wait a few seconds for resources to appear
+          sleep 10
+          
+          # Wait for deployment to complete
+          kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} -n ${{ env.K8S_NAMESPACE }}
+
+      # Step 7: Optional: verify pods
+      - name: Get pod status
+        run: |
+          kubectl get pods -n ${{ env.K8S_NAMESPACE }}
