@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neighbor-app-deployment
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: neighbor-app
+  template:
+    metadata:
+      labels:
+        app: neighbor-app
+    spec:
+      containers:
+      - name: neighbor-app
+        image: neighboracr2025.azurecr.io/neighborapp:latest
+        ports:
+        - containerPort: 3000
+
