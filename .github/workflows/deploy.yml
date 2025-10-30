@@ -1,76 +1,55 @@
-name: CI/CD — Build → ACR → AKS
+name: CI/CD — Build & Deploy to AKS
 
+# Trigger workflow on push to main branch
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches:
+      - main
 
 env:
-  IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
-  ACR: ${{ secrets.ACR_LOGIN_SERVER }}
+  IMAGE_NAME: ${{ secrets.IMAGE_NAME }}             # e.g. neighbor-app
+  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }} # e.g. neighboracr2025.azurecr.io
+  AKS_RESOURCE_GROUP: ${{ secrets.AKS_RESOURCE_GROUP }} # e.g. neighbor-rg
+  AKS_CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME }}     # e.g. neighbor-aks
 
 jobs:
-  build-and-push:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
+      # Step 1: Checkout repository
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Login to Azure
-        uses: azure/login@v2
+      # Step 2: Log in to Azure
+      - name: Azure Login
+        uses: azure/login@v1
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}  # Service principal JSON
 
-      - name: Login to ACR
+      # Step 3: Log in to Azure Container Registry
+      - name: Log in to ACR
         run: |
-          az acr login --name neighboracr2025
+          az acr login --name ${{ secrets.ACR_NAME }}
 
-      - name: Build and push Docker image to ACR
+      # Step 4: Build and Push Docker Image
+      - name: Build and Push Docker Image
         uses: docker/build-push-action@v4
         with:
-          context: .
-          file: ./Dockerfile
+          context: ./                   # Path to your app folder
+          file: ./Dockerfile            # Path to Dockerfile
           push: true
-          tags: ${{ secrets.ACR_LOGIN_SERVER }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }}
+          tags: ${{ secrets.ACR_LOGIN_SERVER }}/${{ secrets.IMAGE_NAME }}:latest
 
-      - name: Set image tag output
-        run: echo "IMAGE_TAG=${{ secrets.ACR_LOGIN_SERVER }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }}" >> $GITHUB_OUTPUT
-
-  deploy-to-aks:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Kubernetes manifests
-        uses: actions/checkout@v4
-        with:
-          path: manifests
-
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Set AKS credentials
-        uses: azure/aks-set-context@v2
-        with:
-          resource-group: ${{ secrets.AKS_RESOURCE_GROUP }}
-          cluster-name: ${{ secrets.AKS_CLUSTER_NAME }}
-
-      - name: Update deployment image and apply
+      # Step 5: Get AKS credentials
+      - name: Get AKS credentials
         run: |
-          IMAGE=${{ secrets.ACR_LOGIN_SERVER }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }}
-          yq e '.spec.template.spec.containers[0].image = strenv(IMAGE)' -i ./manifests/deployment.yaml
-          kubectl apply -f ./manifests/deployment.yaml
-          kubectl apply -f ./manifests/service.yaml
+          az aks get-credentials \
+            --resource-group ${{ env.AKS_RESOURCE_GROUP }} \
+            --name ${{ env.AKS_CLUSTER_NAME }} \
+            --overwrite-existing
 
-      - name: Wait for rollout
-        run: kubectl rollout status deployment/neighbor-app --timeout=180s
-
-      - name: Verify service and pods
+      # Step 6: Apply Kubernetes manifests
+      - name: Deploy to AKS
         run: |
-          kubectl get pods -o wide
-          kubectl get svc neighbor-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' || true
+          kubectl apply -f k8s/           # Path to your deployment/service YAML files
+          kubectl rollout status deployment/${{ env.IMAGE_NAME }} -n default
