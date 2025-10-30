@@ -1,64 +1,72 @@
 name: CI/CD — Build & Deploy to AKS
 
+# Trigger workflow on push to main branch
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches:
+      - main
+
+env:
+  IMAGE_NAME: ${{ secrets.IMAGE_NAME }}             # e.g., neighbor-app
+  ACR_NAME: ${{ secrets.ACR_NAME }}                 # e.g., neighboracr2025
+  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }} # e.g., neighboracr2025.azurecr.io
+  AKS_RESOURCE_GROUP: ${{ secrets.AKS_RESOURCE_GROUP }} # e.g., neighbor-rg
+  AKS_CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME }}     # e.g., neighbor-aks
+  DEPLOYMENT_NAME: neighbor-app-deployment              # must match metadata.name in your deployment.yaml
+  K8S_NAMESPACE: default                                # namespace of your deployment
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
     steps:
-      # 1. Checkout code
-      - name: Checkout code
-        uses: actions/checkout@v4
 
-      # 2. Login to Azure
-      - name: Login to Azure
+      # Step 1: Checkout repository
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Step 2: Azure Login
+      - name: Azure Login
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 3. Login to Azure Container Registry (ACR)
-      - name: Login to ACR
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
-          registry: ${{ env.ACR_LOGIN_SERVER }}
+      # Step 3: Log in to Azure Container Registry
+      - name: Log in to ACR
+        run: |
+          az acr login --name ${{ env.ACR_NAME }}
 
-      # 4. Build and push Docker image
-      - name: Build and push Docker image
+      # Step 4: Build and Push Docker Image
+      - name: Build and Push Docker Image
         uses: docker/build-push-action@v4
         with:
-          context: .
-          file: ./Dockerfile
+          context: ./                   # folder containing your app code
+          file: ./Dockerfile            # path to Dockerfile
           push: true
           tags: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest
 
-      # 5. Set AKS context
-      - name: Set AKS context
-        uses: azure/aks-set-context@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-          cluster-name: ${{ env.AKS_CLUSTER_NAME }}
-          resource-group: ${{ env.AKS_RESOURCE_GROUP }}
+      # Step 5: Get AKS credentials
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ env.AKS_RESOURCE_GROUP }} \
+            --name ${{ env.AKS_CLUSTER_NAME }} \
+            --overwrite-existing
 
-      # 6. Deploy to AKS
+      # Step 6: Deploy to AKS
       - name: Deploy to AKS
-        uses: azure/k8s-deploy@v3
-        with:
-          manifests: |
-            k8s/deployment.yaml
-            k8s/service.yaml
-          add-github-actions-labels: false
+        run: |
+          kubectl apply -f k8s/ -n ${{ env.K8S_NAMESPACE }}
+          
+          # Wait a few seconds for resources to appear
+          sleep 10
+          
+          # Wait for deployment to complete
+          kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} -n ${{ env.K8S_NAMESPACE }}
 
-      # 7. Show deployed service
+      # Step 7: Show deployed service
       - name: Show deployed service
         run: kubectl get svc -n ${{ env.K8S_NAMESPACE }}
 
-      # 8. Verify pods
+      # Step 8: Verify pods
       - name: Get pod status
         run: kubectl get pods -n ${{ env.K8S_NAMESPACE }}
