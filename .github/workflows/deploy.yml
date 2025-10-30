@@ -61,6 +61,8 @@ jobs:
           
           # Wait for deployment to complete
           kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} -n ${{ env.K8S_NAMESPACE }}
+           - name: Show deployed service
+             run: kubectl get svc myapp-service
 
       # Step 7: Optional: verify pods
       - name: Get pod status
