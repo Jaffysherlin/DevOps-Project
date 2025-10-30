@@ -30,26 +30,26 @@ jobs:
 
       # Step 3: Login to Azure Container Registry
       - name: Log in to ACR
-        run: az acr login --name $ACR_NAME
+        run: az acr login --name "${{ secrets.ACR_NAME }}"
 
       # Step 4: Build Docker image
       - name: Build Docker image
         run: |
-          docker build -t $ACR_LOGIN_SERVER/$IMAGE_NAME:${{ github.sha }} .
+          docker build -t "${{ secrets.ACR_LOGIN_SERVER }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }}" .
 
       # Step 5: Push Docker image to ACR
       - name: Push Docker image
         run: |
-          docker push $ACR_LOGIN_SERVER/$IMAGE_NAME:${{ github.sha }}
+          docker push "${{ secrets.ACR_LOGIN_SERVER }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }}"
 
       # Step 6: Get AKS credentials
       - name: Set AKS context
         run: |
-          az aks get-credentials --resource-group $AKS_RESOURCE_GROUP --name $AKS_CLUSTER_NAME --overwrite-existing
+          az aks get-credentials --resource-group "${{ secrets.AKS_RESOURCE_GROUP }}" --name "${{ secrets.AKS_CLUSTER_NAME }}" --overwrite-existing
 
       # Step 7: Deploy to AKS
       - name: Deploy to AKS
         run: |
-          # Replace these names with your actual deployment & container names if different
-          kubectl set image deployment/neighbor-deployment neighbor-container=$ACR_LOGIN_SERVER/$IMAGE_NAME:${{ github.sha }}
+          # Replace with your actual deployment & container names
+          kubectl set image deployment/neighbor-deployment neighbor-container="${{ secrets.ACR_LOGIN_SERVER }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }}"
           kubectl rollout status deployment/neighbor-deployment
